@@ -1,3 +1,7 @@
+param (
+    [string]$PSTName = $null  # Optionaler Parameter für den PST-Namen, Standard ist Null
+)
+
 # Ensure Outlook is running
 $outlook = New-Object -ComObject Outlook.Application
 $namespace = $outlook.GetNamespace("MAPI")
@@ -39,26 +43,36 @@ function CopyAndSaveAsClearText($mail, $targetFolder) {
     }
 }
 
-# Iterate over all folders in each PST file
-foreach ($folder in $namespace.Folders) {
-    Write-Output "Verarbeite PST-Datei: $($folder.Name)"
-
-    # Recursive function to go through all subfolders
-    function ProcessFolder($currentFolder) {
-        foreach ($mail in $currentFolder.Items) {
-            if ($mail.MessageClass -eq "IPM.Note.SMIME") {
-                CopyAndSaveAsClearText -mail $mail -targetFolder $currentFolder
-            }
-        }
-
-        # Process subfolders
-        foreach ($subFolder in $currentFolder.Folders) {
-            ProcessFolder -currentFolder $subFolder
+# Recursive function to process folders and subfolders
+function ProcessFolder($currentFolder) {
+    foreach ($mail in $currentFolder.Items) {
+        if ($mail.MessageClass -eq "IPM.Note.SMIME") {
+            CopyAndSaveAsClearText -mail $mail -targetFolder $currentFolder
         }
     }
 
-    # Start processing the root folder of the PST file
-    ProcessFolder -currentFolder $folder
+    # Process subfolders
+    foreach ($subFolder in $currentFolder.Folders) {
+        ProcessFolder -currentFolder $subFolder
+    }
+}
+
+# Main logic to determine folders to process
+if ($PSTName) {
+    # Process only the specified PST file
+    $folder = $namespace.Folders.Item($PSTName)
+    if ($folder) {
+        Write-Output "Verarbeite PST-Datei: $($folder.Name)"
+        ProcessFolder -currentFolder $folder
+    } else {
+        Write-Output "PST-Datei '$PSTName' nicht gefunden."
+    }
+} else {
+    # Process all loaded PST files
+    foreach ($folder in $namespace.Folders) {
+        Write-Output "Verarbeite PST-Datei: $($folder.Name)"
+        ProcessFolder -currentFolder $folder
+    }
 }
 
 Write-Output "Entschlüsselung und Speicherung abgeschlossen!"
