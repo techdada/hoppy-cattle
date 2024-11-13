@@ -1,0 +1,64 @@
+# Ensure Outlook is running
+$outlook = New-Object -ComObject Outlook.Application
+$namespace = $outlook.GetNamespace("MAPI")
+
+# Function to copy the email content to a new email in cleartext
+function CopyAndSaveAsClearText($mail, $targetFolder) {
+    try {
+        # Open and decrypt the email temporarily
+        $mail.Display()
+        Start-Sleep -Milliseconds 500
+
+        # Create a new mail item to save as clear text
+        $clearTextMail = $outlook.CreateItem(0)  # 0 = olMailItem
+        $clearTextMail.Subject = $mail.Subject
+        $clearTextMail.Body = $mail.Body
+        $clearTextMail.HTMLBody = $mail.HTMLBody
+        $clearTextMail.To = $mail.To
+        $clearTextMail.CC = $mail.CC
+        $clearTextMail.BCC = $mail.BCC
+        $clearTextMail.ReceivedTime = $mail.ReceivedTime
+
+        # Add any attachments from the encrypted mail to the new mail
+        foreach ($attachment in $mail.Attachments) {
+            $attachmentFilePath = "$env:TEMP\$($attachment.FileName)"
+            $attachment.SaveAsFile($attachmentFilePath)
+            $clearTextMail.Attachments.Add($attachmentFilePath)
+        }
+
+        # Save the new mail in the specified folder
+        $clearTextMail.Move($targetFolder)
+        $clearTextMail.Save()
+
+        Write-Output "Mail gespeichert als Klartext: $($mail.Subject)"
+    } catch {
+        Write-Output "Fehler beim Entschlüsseln und Kopieren: $($_.Exception.Message)"
+    } finally {
+        # Close the original email display
+        $mail.Close(0)
+    }
+}
+
+# Iterate over all folders in each PST file
+foreach ($folder in $namespace.Folders) {
+    Write-Output "Verarbeite PST-Datei: $($folder.Name)"
+
+    # Recursive function to go through all subfolders
+    function ProcessFolder($currentFolder) {
+        foreach ($mail in $currentFolder.Items) {
+            if ($mail.MessageClass -eq "IPM.Note.SMIME") {
+                CopyAndSaveAsClearText -mail $mail -targetFolder $currentFolder
+            }
+        }
+
+        # Process subfolders
+        foreach ($subFolder in $currentFolder.Folders) {
+            ProcessFolder -currentFolder $subFolder
+        }
+    }
+
+    # Start processing the root folder of the PST file
+    ProcessFolder -currentFolder $folder
+}
+
+Write-Output "Entschlüsselung und Speicherung abgeschlossen!"
